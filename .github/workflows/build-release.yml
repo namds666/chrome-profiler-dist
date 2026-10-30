@@ -1,0 +1,103 @@
+name: Release — Build & Release
+
+# Builds ChromeProfiler from the private source repo when its trigger.yml
+# dispatches, and publishes the DMG here. This repo is public, so macOS
+# minutes are free and the auto-updater reads the releases without a token.
+on:
+  repository_dispatch:
+    types: [build-release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g., 1.0.42)"
+        required: true
+        type: string
+      sha:
+        description: "Source commit SHA to build"
+        required: true
+        type: string
+
+run-name: Build v${{ github.event.client_payload.version || inputs.version }}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-build
+  cancel-in-progress: false
+
+env:
+  SRC_REPO: namds666/chrome-profiler
+  VERSION: ${{ github.event.client_payload.version || inputs.version }}
+  SHA: ${{ github.event.client_payload.sha || inputs.sha }}
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Check inputs
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must match major.minor.patch"; exit 1; }
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::sha must be a 40-hex commit id"; exit 1; }
+
+      - name: Checkout private source
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.SRC_REPO }}
+          ref: ${{ env.SHA }}
+          token: ${{ secrets.RELEASE_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 0   # full history, for the changelog
+
+      - name: Toolchain versions
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Test
+        run: swift test
+
+      - name: Pin build version
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" App/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" App/Info.plist
+
+      - name: Package DMG
+        run: ./Scripts/dmg.sh release
+
+      # The previous release body records its source commit; older releases
+      # (built in the source repo) fall back to the source repo's latest tag.
+      - name: Build release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          PREV=$(gh release view --json body -q .body 2>/dev/null | grep -oE 'source: [0-9a-f]{40}' | tail -n1 | cut -d' ' -f2 || true)
+          [ -n "$PREV" ] || PREV=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          if [ -n "$PREV" ]; then RANGE="$PREV..HEAD"; HEADER="Changes since the previous release"; else RANGE="HEAD"; HEADER="Initial release"; fi
+          {
+            echo "## $HEADER"
+            echo
+            git log $RANGE --no-merges --pretty='- %s'
+            echo
+            echo "**Install:** download \`ChromeProfiler.dmg\` below, drag it to Applications, and launch it (menu-bar ▸ icon). Opening a downloaded copy the first time: right-click ▸ Open."
+            echo
+            echo "The app updates itself: Settings ▸ General ▸ Updates."
+            echo
+            echo "<sub>source: $SHA</sub>"
+          } > "$RUNNER_TEMP/release-notes.md"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="v$VERSION"
+          # Commit-count versioning is stable across re-runs; publishing again would 422.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists (re-run) — skipping publish"
+            exit 0
+          fi
+          gh release create "$TAG" .build/ChromeProfiler.dmg \
+            --title "ChromeProfiler $TAG" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
