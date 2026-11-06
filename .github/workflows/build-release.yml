@@ -106,6 +106,8 @@ jobs:
             echo
             echo "The app updates itself: Settings ▸ General ▸ Updates."
             echo
+            echo "**Windows (light version):** download \`ChromeProfiler.exe\`, keep it in a fixed folder and run it (SmartScreen: More info ▸ Run anyway). No auto-update: replace the exe."
+            echo
             echo "<sub>source: $SHA</sub>"
           } > "$RUNNER_TEMP/release-notes.md"
 
@@ -123,3 +125,38 @@ jobs:
           gh release create "$TAG" .build/ChromeProfiler.dmg \
             --title "ChromeProfiler $TAG" \
             --notes-file "$RUNNER_TEMP/release-notes.md"
+
+  # The light Windows build (source: windows/). Runs after the macOS job created
+  # the release, so a Windows failure never blocks the Mac release.
+  windows:
+    needs: build
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: windows
+    steps:
+      - name: Checkout private source
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.SRC_REPO }}
+          ref: ${{ env.SHA }}
+          token: ${{ secrets.RELEASE_TOKEN }}
+          persist-credentials: false
+
+      - name: Toolchain versions
+        run: cargo --version
+
+      - name: Test
+        run: cargo test
+
+      - name: Build exe
+        env:
+          CHROME_PROFILER_VERSION: ${{ env.VERSION }}
+        run: cargo build --release
+
+      - name: Upload exe to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "v$VERSION" target/release/ChromeProfiler.exe --clobber
