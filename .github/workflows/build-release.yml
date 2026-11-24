@@ -126,6 +126,32 @@ jobs:
             --title "ChromeProfiler $TAG" \
             --notes-file "$RUNNER_TEMP/release-notes.md"
 
+      # The app's updater reads latest.json from raw.githubusercontent.com, which
+      # has no per-IP API quota. The digest comes from the published asset, so a
+      # re-run never writes the digest of a rebuilt DMG. Never moves backwards.
+      - name: Publish latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          OLD_SHA=$(gh api "repos/$GH_REPO/contents/latest.json" -q .sha 2>/dev/null || true)
+          OLD_VERSION=$(curl -fsSL "https://raw.githubusercontent.com/$GH_REPO/main/latest.json?t=$(date +%s)" 2>/dev/null | jq -r '.version // empty' || true)
+          if [ -n "$OLD_VERSION" ] && ! python3 -c 'import sys; v=lambda s: tuple(map(int, s.split("."))); sys.exit(0 if v(sys.argv[1]) > v(sys.argv[2]) else 1)' "$VERSION" "$OLD_VERSION"; then
+            echo "latest.json is at $OLD_VERSION — not moving it to $VERSION"
+            exit 0
+          fi
+          gh release download "v$VERSION" -p ChromeProfiler.dmg -D "$RUNNER_TEMP/published" --clobber
+          DIGEST=$(shasum -a 256 "$RUNNER_TEMP/published/ChromeProfiler.dmg" | cut -d' ' -f1)
+          URL="https://github.com/$GH_REPO/releases"
+          jq -n --arg v "$VERSION" --arg d "$DIGEST" --arg u "$URL" \
+            '{version: $v, tag: ("v" + $v), dmg: ($u + "/download/v" + $v + "/ChromeProfiler.dmg"), sha256: $d, page: ($u + "/tag/v" + $v)}' \
+            > "$RUNNER_TEMP/latest.json"
+          cat "$RUNNER_TEMP/latest.json"
+          gh api -X PUT "repos/$GH_REPO/contents/latest.json" \
+            -f message="latest.json: v$VERSION" \
+            -f content="$(base64 < "$RUNNER_TEMP/latest.json" | tr -d '\n')" \
+            ${OLD_SHA:+-f sha="$OLD_SHA"} > /dev/null
+
   # The light Windows build (source: windows/). Runs after the macOS job created
   # the release, so a Windows failure never blocks the Mac release.
   windows:
