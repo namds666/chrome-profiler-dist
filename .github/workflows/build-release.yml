@@ -134,8 +134,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          OLD_SHA=$(gh api "repos/$GH_REPO/contents/latest.json" -q .sha 2>/dev/null || true)
-          OLD_VERSION=$(curl -fsSL "https://raw.githubusercontent.com/$GH_REPO/main/latest.json?t=$(date +%s)" 2>/dev/null | jq -r '.version // empty' || true)
+          OLD=$(gh api "repos/$GH_REPO/contents/latest.json" 2>/dev/null || echo '{}')
+          OLD_SHA=$(jq -r '.sha // empty' <<<"$OLD")
+          OLD_VERSION=$(jq -r '.content // empty' <<<"$OLD" | base64 --decode 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)
           if [ -n "$OLD_VERSION" ] && ! python3 -c 'import sys; v=lambda s: tuple(map(int, s.split("."))); sys.exit(0 if v(sys.argv[1]) > v(sys.argv[2]) else 1)' "$VERSION" "$OLD_VERSION"; then
             echo "latest.json is at $OLD_VERSION — not moving it to $VERSION"
             exit 0
