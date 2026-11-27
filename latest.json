@@ -1,7 +1,7 @@
 {
-  "version": "1.0.65",
-  "tag": "v1.0.65",
-  "dmg": "https://github.com/namds666/chrome-profiler-dist/releases/download/v1.0.65/ChromeProfiler.dmg",
-  "sha256": "2917adccec76a4021176bc41c51b4624adb8b1475235230b08868da0bd71cda9",
-  "page": "https://github.com/namds666/chrome-profiler-dist/releases/tag/v1.0.65"
+  "version": "1.0.66",
+  "tag": "v1.0.66",
+  "dmg": "https://github.com/namds666/chrome-profiler-dist/releases/download/v1.0.66/ChromeProfiler.dmg",
+  "sha256": "19b31e7f5f2a8e9af31af4291a353d46dddd644db9b61ddd3151a3fed5d57f92",
+  "page": "https://github.com/namds666/chrome-profiler-dist/releases/tag/v1.0.66"
 }
